@@ -1,4 +1,3 @@
-using System;
 using AutoMapper;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Logging;
