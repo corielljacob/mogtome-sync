@@ -2,7 +2,7 @@ name: Build and deploy .NET Core application to Function App MogTomeSync
 on:
   push:
     branches:
-    - main
+    - master
 env:
   AZURE_FUNCTIONAPP_NAME: MogTomeSync
   AZURE_FUNCTIONAPP_PACKAGE_PATH: MogTomeSyncFunction\published
@@ -48,5 +48,5 @@ jobs:
       uses: Azure/functions-action@v1
       with:
         app-name: ${{ env.AZURE_FUNCTIONAPP_NAME }}
-        publish-profile: ${{ secrets.MogTomeSync_C69F }}
+        publish-profile: ${{ secrets.MogTomeSync_E112 }}
         package: ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
