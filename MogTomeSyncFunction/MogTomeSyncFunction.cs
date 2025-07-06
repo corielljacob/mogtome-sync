@@ -23,7 +23,7 @@ namespace MogTomeSyncFunction
         }
 
         [Function("MogTomeSyncFunction")]
-        public async Task Run([TimerTrigger("0 */10 * * * *", RunOnStartup =true)] TimerInfo myTimer)
+        public async Task Run([TimerTrigger("0 */15 * * * *", RunOnStartup =true)] TimerInfo myTimer)
         {
             List<FreeCompanyMember> freshFreeCompanyMemberList;
             List<FreeCompanyMember> archivedFreeCompanyMemberList;
