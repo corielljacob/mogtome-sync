@@ -30,11 +30,15 @@ jobs:
       run: dotnet build "${{ env.WORKING_DIRECTORY }}" --configuration ${{ env.CONFIGURATION }} --no-restore
     - name: Publish
       run: dotnet publish "${{ env.WORKING_DIRECTORY }}" --configuration ${{ env.CONFIGURATION }} --no-build --output "${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}"
+    - name: Zip published output
+      run: |
+        Compress-Archive -Path "${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}" -DestinationPath "${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}"\publish.zip
     - name: Publish Artifacts
       uses: actions/upload-artifact@v4
       with:
         name: functionapp
         path: ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
+        include-hidden-files: true
   deploy:
     runs-on: windows-latest
     needs: build
