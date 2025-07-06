@@ -10,26 +10,20 @@ namespace MogTomeSyncFunction
     public class MogTomeSyncFunction
     {
         private readonly ILogger _logger;
-        private readonly string _connectionString;
-        private readonly MongoClient _mongoClient;
+        private string _connectionString;
+        private MongoClient _mongoClient;
         private readonly IMapper _mapper;
 
         public MogTomeSyncFunction(ILoggerFactory loggerFactory, IMapper mapper)
         {
             _logger = loggerFactory.CreateLogger<MogTomeSyncFunction>();
             _mapper = mapper;
-
-            var connectionString = Environment.GetEnvironmentVariable(Constants.ConnectionStringId, EnvironmentVariableTarget.Machine);
-
-            if (string.IsNullOrWhiteSpace(connectionString))
-                connectionString = Environment.GetEnvironmentVariable(Constants.ConnectionStringId);
-
-            _connectionString = connectionString ?? "";
+            _connectionString = Environment.GetEnvironmentVariable(Constants.ConnectionStringId, EnvironmentVariableTarget.Process) ?? "";
             _mongoClient = new MongoClient(_connectionString);
         }
 
         [Function("MogTomeSyncFunction")]
-        public async Task Run([TimerTrigger("0 */5 * * * *", RunOnStartup =true)] TimerInfo myTimer)
+        public async Task Run([TimerTrigger("0 */10 * * * *", RunOnStartup =true)] TimerInfo myTimer)
         {
             List<FreeCompanyMember> freshFreeCompanyMemberList;
             List<FreeCompanyMember> archivedFreeCompanyMemberList;
@@ -38,11 +32,26 @@ namespace MogTomeSyncFunction
             {
                 var freshFreeCompanyMemberEntries = await GetFreshFreeCompanyMemberList();
                 freshFreeCompanyMemberList = _mapper.Map<List<FreeCompanyMember>>(freshFreeCompanyMemberEntries);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unable to retrieve free company member list from lodestone. Exception message: {message}\n{stackTrace}", ex.Message, ex.StackTrace);
+                return;
+            }
+
+            try
+            {
                 archivedFreeCompanyMemberList = await GetArchivedFreeCompanyMembers();
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Unable to retrieve free company member list. Exception message: {message}\n{stackTrace}", ex.Message, ex.StackTrace);
+                _logger.LogError(ex, "Unable to retrieve free company member list from mongo. Exception message: {message}\n{stackTrace}", ex.Message, ex.StackTrace);
+                return;
+            }
+
+            if (freshFreeCompanyMemberList is null || freshFreeCompanyMemberList.Count < 10)
+            {
+                _logger.LogError("Unable to retrieve a healthy free company member list from lodestone.");
                 return;
             }
 
@@ -61,6 +70,13 @@ namespace MogTomeSyncFunction
             _logger.LogInformation($"Function completed successfully");
         }
 
+        //public async Task AchievementSync([TimerTrigger("0 */5 * * * *", RunOnStartup = true)] TimerInfo myTimer)
+        //{
+        //    // retrieve active members from mongo
+        //    var members = (await GetArchivedFreeCompanyMembers()).Where(member => member.ActiveMember);
+        //    // for each active member, retrieve their achievements
+        //    // update the achievements in mongo
+        //}
 
         private static async Task<List<FreeCompanyMembersEntry>> GetFreshFreeCompanyMemberList()
         {
@@ -77,11 +93,9 @@ namespace MogTomeSyncFunction
             return members;
         }
 
-        private static async Task<List<FreeCompanyMember>> GetArchivedFreeCompanyMembers()
+        private async Task<List<FreeCompanyMember>> GetArchivedFreeCompanyMembers()
         {
-            var connectionString = Environment.GetEnvironmentVariable(Constants.ConnectionStringId, EnvironmentVariableTarget.Machine);
-            var client = new MongoClient(connectionString);
-            var membersCollection = client.GetDatabase("kupo-life").GetCollection<FreeCompanyMember>("members");
+            var membersCollection = _mongoClient.GetDatabase("kupo-life").GetCollection<FreeCompanyMember>("members");
             var filter = Builders<FreeCompanyMember>.Filter.Empty;
             var freeCompanyMembers = await membersCollection.Find(filter).ToListAsync();
 
@@ -92,7 +106,6 @@ namespace MogTomeSyncFunction
         {
             var membersWhoHaveLeft = GetMembersWhoHaveLeft(freshFreeCompanyMemberList, archivedFreeCompanyMemberList);
             var idsOfMembersWhoHaveLeft = membersWhoHaveLeft.Select(member => member.CharacterId).ToList();
-
             var membersCollection = _mongoClient.GetDatabase("kupo-life").GetCollection<FreeCompanyMember>("members");
 
             var updates = new List<WriteModel<FreeCompanyMember>>();
