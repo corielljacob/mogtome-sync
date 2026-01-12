@@ -30,7 +30,6 @@ namespace MogTomeSyncFunction
             _httpClient = httpClient;
             _mogTomeApiUrl = Environment.GetEnvironmentVariable(Constants.MogTomeApiUrlId, EnvironmentVariableTarget.Process) ?? "";
             _mogTomeApiKey = Environment.GetEnvironmentVariable(Constants.MogTomeApiKeyId, EnvironmentVariableTarget.Process) ?? "";
-            BsonSerializer.RegisterSerializer(new GuidSerializer(GuidRepresentation.Standard));
         }
 
         [Function("MogTomeSyncFunction")]
