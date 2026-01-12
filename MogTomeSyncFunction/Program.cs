@@ -8,4 +8,6 @@ builder.ConfigureFunctionsWebApplication();
 
 builder.Services.AddAutoMapper(typeof(Program));
 
+builder.Services.AddSingleton(new HttpClient());
+
 await builder.Build().RunAsync();

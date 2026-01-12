@@ -1,9 +1,13 @@
 using AutoMapper;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Logging;
+using MongoDB.Bson;
+using MongoDB.Bson.Serialization;
+using MongoDB.Bson.Serialization.Serializers;
 using MongoDB.Driver;
 using NetStone;
 using NetStone.Model.Parseables.FreeCompany.Members;
+using System.Text.Json;
 
 namespace MogTomeSyncFunction
 {
@@ -13,17 +17,24 @@ namespace MogTomeSyncFunction
         private string _connectionString;
         private MongoClient _mongoClient;
         private readonly IMapper _mapper;
+        private readonly HttpClient _httpClient;
+        private readonly string _mogTomeApiUrl;
+        private readonly string _mogTomeApiKey;
 
-        public MogTomeSyncFunction(ILoggerFactory loggerFactory, IMapper mapper)
+        public MogTomeSyncFunction(ILoggerFactory loggerFactory, IMapper mapper, HttpClient httpClient)
         {
             _logger = loggerFactory.CreateLogger<MogTomeSyncFunction>();
             _mapper = mapper;
             _connectionString = Environment.GetEnvironmentVariable(Constants.ConnectionStringId, EnvironmentVariableTarget.Process) ?? "";
             _mongoClient = new MongoClient(_connectionString);
+            _httpClient = httpClient;
+            _mogTomeApiUrl = Environment.GetEnvironmentVariable(Constants.MogTomeApiUrlId, EnvironmentVariableTarget.Process) ?? "";
+            _mogTomeApiKey = Environment.GetEnvironmentVariable(Constants.MogTomeApiKeyId, EnvironmentVariableTarget.Process) ?? "";
+            BsonSerializer.RegisterSerializer(new GuidSerializer(GuidRepresentation.Standard));
         }
 
         [Function("MogTomeSyncFunction")]
-        public async Task Run([TimerTrigger("0 */15 * * * *", RunOnStartup =true)] TimerInfo myTimer)
+        public async Task Run([TimerTrigger("0 */15 * * * *", RunOnStartup = true)] TimerInfo myTimer)
         {
             List<FreeCompanyMember> freshFreeCompanyMemberList;
             List<FreeCompanyMember> archivedFreeCompanyMemberList;
@@ -61,7 +72,7 @@ namespace MogTomeSyncFunction
                 await UpdateMembersWhoHaveJoined(freshFreeCompanyMemberList, archivedFreeCompanyMemberList);
                 await UpdateExistingMembers(freshFreeCompanyMemberList, archivedFreeCompanyMemberList);
             }
-            catch (Exception ex) 
+            catch (Exception ex)
             {
                 _logger.LogError(ex, "Unable to update data in mongo. Exception message: {message}\n{stackTrace}", ex.Message, ex.StackTrace);
                 return;
@@ -131,7 +142,18 @@ namespace MogTomeSyncFunction
 
             // Insert brand new members
             if (newMembersWhoHaveJoined.Count > 0)
+            {
                 await membersCollection.InsertManyAsync(newMembersWhoHaveJoined);
+
+                try
+                {
+                    await CreateEventsForNewMembers(newMembersWhoHaveJoined.Select(member => member.Name));
+                } 
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Unable to create events for new members. Exception message: {message}\n{stackTrace}", ex.Message, ex.StackTrace);
+                }
+            }
 
             // Update documents for rejoining members
             if (returningMembersWhoHaveJoined.Count > 0)
@@ -156,6 +178,7 @@ namespace MogTomeSyncFunction
                 if (updates.Count > 0)
                 {
                     var updateResult = membersCollection.BulkWrite(updates);
+                    // CreateEventsForReturningMembers(returningMembersWhoHaveJoined.Select(member => member.Name));
                 }
             }
         }
@@ -192,6 +215,45 @@ namespace MogTomeSyncFunction
             {
                 var updateResult = await membersCollection.BulkWriteAsync(updates);
             }
+        }
+
+        private async Task CreateEventsForNewMembers(IEnumerable<string> newMemberNames)
+        {
+            List<Event> events = [];
+            foreach (var member in newMemberNames)
+            {
+                var newMemberEvent = new Event
+                {
+                    Id = Guid.NewGuid(),
+                    Text = $"{member} has joined the Free Company",
+                    Type = EventType.MemberJoined.ToString(),
+                    Date = DateTime.Now
+                };
+
+                events.Add(newMemberEvent);
+            }
+
+            // Add the new events to the mongodb collection
+            var eventsCollection = _mongoClient.GetDatabase("kupo-life").GetCollection<Event>("events");
+            await eventsCollection.InsertManyAsync(events);
+
+            // Broadcast the new events to signalr listeners via mogtomeapi
+            var jsonContent = JsonSerializer.Serialize(events);
+            var httpContent = new StringContent(jsonContent, System.Text.Encoding.UTF8, "application/json");
+            httpContent.Headers.Add("X-API-KEY", _mogTomeApiKey);
+            await _httpClient.PostAsync($"{_mogTomeApiUrl}/events/create-event", httpContent);
+        }
+
+        private void CreateEventsForReturningMembers(IEnumerable<string> newMemberNames)
+        {
+            // Create new event for each new member in mongo
+            // Call mogtomeapi to broadcast to signalr listeners
+        }
+
+        private void CreateEventsForNameChanges()
+        {
+            // Create new event for each name change in mongo which includes old and new names
+            // Call mogtomeapi to broadcast to signalr listeners
         }
 
         private static List<FreeCompanyMember> GetMembersWhoHaveLeft(List<FreeCompanyMember> freshFreeCompanyMemberList, List<FreeCompanyMember> archivedFreeCompanyMemberList)
