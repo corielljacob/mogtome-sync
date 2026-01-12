@@ -57,9 +57,9 @@ namespace MogTomeSyncFunction
 
             try
             {
-                UpdateMembersWhoHaveLeft(freshFreeCompanyMemberList, archivedFreeCompanyMemberList);
+                await UpdateMembersWhoHaveLeft(freshFreeCompanyMemberList, archivedFreeCompanyMemberList);
                 await UpdateMembersWhoHaveJoined(freshFreeCompanyMemberList, archivedFreeCompanyMemberList);
-                UpdateExistingMembers(freshFreeCompanyMemberList, archivedFreeCompanyMemberList);
+                await UpdateExistingMembers(freshFreeCompanyMemberList, archivedFreeCompanyMemberList);
             }
             catch (Exception ex) 
             {
@@ -69,14 +69,6 @@ namespace MogTomeSyncFunction
 
             _logger.LogInformation($"Function completed successfully");
         }
-
-        //public async Task AchievementSync([TimerTrigger("0 */5 * * * *", RunOnStartup = true)] TimerInfo myTimer)
-        //{
-        //    // retrieve active members from mongo
-        //    var members = (await GetArchivedFreeCompanyMembers()).Where(member => member.ActiveMember);
-        //    // for each active member, retrieve their achievements
-        //    // update the achievements in mongo
-        //}
 
         private static async Task<List<FreeCompanyMembersEntry>> GetFreshFreeCompanyMemberList()
         {
@@ -102,7 +94,7 @@ namespace MogTomeSyncFunction
             return freeCompanyMembers;
         }
 
-        private void UpdateMembersWhoHaveLeft(List<FreeCompanyMember> freshFreeCompanyMemberList, List<FreeCompanyMember> archivedFreeCompanyMemberList)
+        private async Task UpdateMembersWhoHaveLeft(List<FreeCompanyMember> freshFreeCompanyMemberList, List<FreeCompanyMember> archivedFreeCompanyMemberList)
         {
             var membersWhoHaveLeft = GetMembersWhoHaveLeft(freshFreeCompanyMemberList, archivedFreeCompanyMemberList);
             var idsOfMembersWhoHaveLeft = membersWhoHaveLeft.Select(member => member.CharacterId).ToList();
@@ -123,7 +115,7 @@ namespace MogTomeSyncFunction
 
             if (updates.Count > 0)
             {
-                var updateResult = membersCollection.BulkWrite(updates);
+                var updateResult = await membersCollection.BulkWriteAsync(updates);
             }
         }
 
@@ -168,7 +160,7 @@ namespace MogTomeSyncFunction
             }
         }
 
-        private void UpdateExistingMembers(List<FreeCompanyMember> freshFreeCompanyMemberList, List<FreeCompanyMember> archivedFreeCompanyMemberList)
+        private async Task UpdateExistingMembers(List<FreeCompanyMember> freshFreeCompanyMemberList, List<FreeCompanyMember> archivedFreeCompanyMemberList)
         {
             var existingMembers = GetExistingMembers(freshFreeCompanyMemberList, archivedFreeCompanyMemberList);
             var membersCollection = _mongoClient.GetDatabase("kupo-life").GetCollection<FreeCompanyMember>("members");
@@ -198,7 +190,7 @@ namespace MogTomeSyncFunction
 
             if (updates.Count > 0)
             {
-                var updateResult = membersCollection.BulkWrite(updates);
+                var updateResult = await membersCollection.BulkWriteAsync(updates);
             }
         }
 

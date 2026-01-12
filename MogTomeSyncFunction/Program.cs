@@ -8,4 +8,4 @@ builder.ConfigureFunctionsWebApplication();
 
 builder.Services.AddAutoMapper(typeof(Program));
 
-builder.Build().Run();
+await builder.Build().RunAsync();
