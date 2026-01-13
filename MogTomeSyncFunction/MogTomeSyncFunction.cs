@@ -1,9 +1,6 @@
 using AutoMapper;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Logging;
-using MongoDB.Bson;
-using MongoDB.Bson.Serialization;
-using MongoDB.Bson.Serialization.Serializers;
 using MongoDB.Driver;
 using NetStone;
 using NetStone.Model.Parseables.FreeCompany.Members;
@@ -146,7 +143,7 @@ namespace MogTomeSyncFunction
 
                 try
                 {
-                    await CreateEventsForNewMembers(newMembersWhoHaveJoined.Select(member => member.Name));
+                    await SendEvents(newMembersWhoHaveJoined.Select(member => $"{member.Name} has joined the Free Company"), EventType.MemberJoined);
                 } 
                 catch (Exception ex)
                 {
@@ -177,7 +174,7 @@ namespace MogTomeSyncFunction
                 if (updates.Count > 0)
                 {
                     var updateResult = membersCollection.BulkWrite(updates);
-                    // CreateEventsForReturningMembers(returningMembersWhoHaveJoined.Select(member => member.Name));
+                    await SendEvents(returningMembersWhoHaveJoined.Select(member => $"{member.Name} has rejoined the Free Company"), EventType.MemberRejoined);
                 }
             }
         }
@@ -188,6 +185,7 @@ namespace MogTomeSyncFunction
             var membersCollection = _mongoClient.GetDatabase("kupo-life").GetCollection<FreeCompanyMember>("members");
 
             var updates = new List<WriteModel<FreeCompanyMember>>();
+            var freeCompanyMemberChangeRecords = new List<FreeCompanyMemberChangeRecord>();
             foreach (var member in existingMembers)
             {
                 var currentName = freshFreeCompanyMemberList.First(freshMember => freshMember.CharacterId == member.CharacterId).Name;
@@ -207,6 +205,13 @@ namespace MogTomeSyncFunction
 
                     var updateModel = new UpdateOneModel<FreeCompanyMember>(filter, update);
                     updates.Add(updateModel);
+
+                    freeCompanyMemberChangeRecords.Add(new FreeCompanyMemberChangeRecord
+                    {
+                        HistoricalMemberData = member,
+                        CurrentName = currentName,
+                        CurrentRank = currentRank
+                    });
                 }
             }
 
@@ -214,45 +219,101 @@ namespace MogTomeSyncFunction
             {
                 var updateResult = await membersCollection.BulkWriteAsync(updates);
             }
+
+            await ProcessExistingMemberUpdateEvents(freeCompanyMemberChangeRecords);
         }
 
-        private async Task CreateEventsForNewMembers(IEnumerable<string> newMemberNames)
+        private async Task ProcessExistingMemberUpdateEvents(IEnumerable<FreeCompanyMemberChangeRecord> freeCompanyMemberChangeRecords)
         {
-            List<Event> events = [];
-            foreach (var member in newMemberNames)
-            {
-                var newMemberEvent = new Event
-                {
-                    Id = Guid.NewGuid(),
-                    Text = $"{member} has joined the Free Company",
-                    Type = EventType.MemberJoined.ToString(),
-                    Date = DateTime.Now
-                };
+            List<string> rankPromotionEventMessages = [];
+            List<string> nameChangeEventMessages = [];
 
-                events.Add(newMemberEvent);
+            foreach (var record in freeCompanyMemberChangeRecords)
+            {
+                var currentName = record.CurrentName;
+                var historicalName = record.HistoricalMemberData.Name;
+                var currentRank = record.CurrentRank;
+                var historicalRank = record.HistoricalMemberData.FreeCompanyRank;
+
+                if (currentName != historicalName)
+                {
+                    nameChangeEventMessages.Add($"{historicalName} has changed their name to {currentName}");
+                }
+
+                if (currentRank != historicalRank && RankChangeIsPromotion(currentRank, historicalRank))
+                {
+                    rankPromotionEventMessages.Add($"{currentName} has been promoted to {currentRank}");
+                }
             }
 
-            // Add the new events to the mongodb collection
-            var eventsCollection = _mongoClient.GetDatabase("kupo-life").GetCollection<Event>("events");
-            await eventsCollection.InsertManyAsync(events);
+            if (nameChangeEventMessages.Count > 0)
+            {
+                await SendEvents(nameChangeEventMessages, EventType.NameChanged);
+            }
 
-            // Broadcast the new events to signalr listeners via mogtomeapi
-            var jsonContent = JsonSerializer.Serialize(events);
-            var httpContent = new StringContent(jsonContent, System.Text.Encoding.UTF8, "application/json");
-            httpContent.Headers.Add("X-API-KEY", _mogTomeApiKey);
-            await _httpClient.PostAsync($"{_mogTomeApiUrl}/events/create-event", httpContent);
+            if (rankPromotionEventMessages.Count > 0)
+            {
+                await SendEvents(rankPromotionEventMessages, EventType.RankPromoted);
+            }
         }
 
-        private void CreateEventsForReturningMembers(IEnumerable<string> newMemberNames)
+        public class FreeCompanyMemberChangeRecord
         {
-            // Create new event for each new member in mongo
-            // Call mogtomeapi to broadcast to signalr listeners
+            public FreeCompanyMember HistoricalMemberData { get; set; }
+            public string CurrentName { get; set; }
+            public string CurrentRank { get; set; }
         }
 
-        private void CreateEventsForNameChanges()
+        private static bool RankChangeIsPromotion(string currentRank, string historicalRank)
         {
-            // Create new event for each name change in mongo which includes old and new names
-            // Call mogtomeapi to broadcast to signalr listeners
+            var FreeCompanyMemberRanks = new Dictionary<string, int>
+            {
+                { "Mandragora", 1 },
+                { "Coeurl Hunter", 2 },
+                { "Paissa Trainer", 3 },
+                { "Moogle Knight", 4 }
+            };
+
+            if (FreeCompanyMemberRanks.TryGetValue(currentRank, out int currentRankValue) && FreeCompanyMemberRanks.TryGetValue(historicalRank, out int historicalRankValue))
+            {
+                return currentRankValue > historicalRankValue;
+            }
+
+            return false;
+        }
+
+        private async Task SendEvents(IEnumerable<string> eventMessages, EventType eventType)
+        {
+            try
+            {
+                List<Event> events = [];
+                foreach (var message in eventMessages)
+                {
+                    var newMemberEvent = new Event
+                    {
+                        Id = Guid.NewGuid(),
+                        Text = message,
+                        Type = eventType.ToString(),
+                        Date = DateTime.Now
+                    };
+
+                    events.Add(newMemberEvent);
+                }
+
+                // Add the new events to the mongodb collection
+                var eventsCollection = _mongoClient.GetDatabase("kupo-life").GetCollection<Event>("events");
+                await eventsCollection.InsertManyAsync(events);
+
+                // Broadcast the new events to signalr listeners via mogtomeapi
+                var jsonContent = JsonSerializer.Serialize(events);
+                var httpContent = new StringContent(jsonContent, System.Text.Encoding.UTF8, "application/json");
+                httpContent.Headers.Add("X-API-KEY", _mogTomeApiKey);
+                await _httpClient.PostAsync($"{_mogTomeApiUrl}/events/create-event", httpContent);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unable to send events to mogtomeapi. Exception message: {message}\n{stackTrace}", ex.Message, ex.StackTrace);
+            }
         }
 
         private static List<FreeCompanyMember> GetMembersWhoHaveLeft(List<FreeCompanyMember> freshFreeCompanyMemberList, List<FreeCompanyMember> archivedFreeCompanyMemberList)

@@ -18,5 +18,7 @@ namespace MogTomeSyncFunction
     {
         MemberJoined,
         MemberRejoined,
+        RankPromoted,
+        NameChanged
     }
 }
