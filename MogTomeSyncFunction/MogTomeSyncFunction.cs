@@ -291,10 +291,9 @@ namespace MogTomeSyncFunction
                 {
                     var newMemberEvent = new Event
                     {
-                        Id = Guid.NewGuid(),
                         Text = message,
                         Type = eventType.ToString(),
-                        Date = DateTime.Now
+                        CreatedAt = DateTime.Now
                     };
 
                     events.Add(newMemberEvent);

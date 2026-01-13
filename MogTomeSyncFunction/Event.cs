@@ -1,4 +1,5 @@
-﻿using System;
+﻿using MongoDB.Bson;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -8,9 +9,9 @@ namespace MogTomeSyncFunction
 {
     public class Event
     {
-        public Guid Id { get; set; }
+        public ObjectId Id { get; set; }
         public string Text { get; set; }
-        public DateTime Date { get; set; }
+        public DateTime CreatedAt { get; set; }
         public string Type { get; set; }
     }
 
