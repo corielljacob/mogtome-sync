@@ -203,6 +203,11 @@ namespace MogTomeSyncFunction
                         .Set(member => member.FreeCompanyRank, currentRank)
                         .Set(member => member.FreeCompanyRankIcon, currentRankIcon);
 
+                    if(RankChangeIsPromotion(currentRank, member.FreeCompanyRank))
+                    {
+                        update = update.Set(member => member.PromotionDate, DateTime.UtcNow);
+                    };
+
                     var updateModel = new UpdateOneModel<FreeCompanyMember>(filter, update);
                     updates.Add(updateModel);
 
@@ -268,6 +273,8 @@ namespace MogTomeSyncFunction
         {
             var FreeCompanyMemberRanks = new Dictionary<string, int>
             {
+                { "Kupo Shelf", 1 },
+                { "Apkallu Seeker", 1 },
                 { "Mandragora", 1 },
                 { "Coeurl Hunter", 2 },
                 { "Paissa Trainer", 3 },

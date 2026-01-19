@@ -13,5 +13,6 @@ namespace MogTomeSyncFunction
         public DateTime LastUpdatedDate { get; set; }
         public string MembershipHistory { get; set; }
         public string AvatarLink { get; set; }
+        public DateTime PromotionDate { get; set; }
     }
 }
